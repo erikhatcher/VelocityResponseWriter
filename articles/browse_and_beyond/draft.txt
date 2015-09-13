@@ -1,0 +1,191 @@
+<h2 class="">The Series</h2>
+<p class="p1"><span class="s1">This is the second in a three part series demonstrating how it’s possible to build a real application using just a few simple commands.  The three parts to this are:</span></p>
+
+<ul>
+	<li class="p1"><a href="http://lucidworks.com/blog/solr-5-new-binpost-utility/">Getting data into Solr using bin/post</a></li>
+	<li class="p1"><strong>==&gt; (you are here)</strong> Visualizing search results: /browse and beyond</li>
+	<li class="p1">Up next: Putting it together realistically: example/files – a concrete useful domain-specific example of bin/post and /browse</li>
+</ul>
+<h2 class="">/browse - A simple, configurable, built-in templated results view</h2>
+We foreshadowed to this point in the <a href="http://lucidworks.com/blog/solr-5-new-binpost-utility/">previous, bin/post, article</a>, running these commands -
+<pre class="crayon:false">$ bin/solr create -c solr_docs
+$ bin/post -c solr_docs docs/</pre>
+And here we are: <a href="http://localhost:8983/solr/solr_docs/browse?q=faceting">http://localhost:8983/solr/solr_docs/browse?q=faceting</a>
+
+Or sticking with the command-line, this will get you there:
+<pre class="">$ open http://localhost:8983/solr/solr_docs/browse?q=faceting</pre>
+<h2><a href="http://lucidworks.com/wp-content/uploads/2015/08/browse_solr_docs_faceting_query1.png"><img class="  aligncenter wp-image-13762 size-large" src="http://lucidworks.com/wp-content/uploads/2015/08/browse_solr_docs_faceting_query1-1024x682.png" alt="" width="640" height="426" /></a></h2>
+<h2> The legacy "collection1", also known as techproducts</h2>
+<p class="">Seasoned Solr developers probably have seen the original incarnation of /browse. Remember /collection1/browse with the tech products indexed? With Solr 5, things got a little cleaner with this example and it can easily be launched with the <code>-e</code> switch:</p>
+
+<pre class="">$ bin/solr start -e techproducts</pre>
+The techproducts example will not only create a techproducts collection it will also index a set of example documents, the equivalent of running:
+<pre class="p1"><span class="s1">$ bin/solr create -c techproducts -d sample_techproducts_configs
+</span><span class="s1">$ bin/post -c techproducts example/exampledocs/*.xml</span></pre>
+<p class="p1"> You're ready to <a href="http://localhost:8983/solr/techproducts/browse" target="_blank">/browse</a> techproducts.   This can be done using "open" from the command-line:</p>
+
+<pre class="">$ open http://localhost:8983/solr/techproducts/browse</pre>
+An "ipod" search results in:
+
+<img class="aligncenter wp-image-13672 size-large" src="http://lucidworks.com/wp-content/uploads/2015/03/browse_techproducts-1024x624.png" alt="/techproducts/browse" width="640" height="390" />
+
+&nbsp;
+
+The techproducts example is the fullest featured /browse interface, but it suffers from the kitchen sink syndrome.  It's got some cool things in there like as-you-type term suggest (type "ap" and pause, you'll see "apple" appear), geographic search (products have contrived associated "store" locations), results grouping, faceting, more-like-this links, and "did you mean?" suggestions.   While those are all great features often desired in our search interfaces, the techproducts /browse has been hacked to support not only just the tech products example data, but also the example books data (also in example/exampledocs/) and even made to demonstrate rich text files (note the content_type facet).  It's convoluted to start with the techproducts templates and trim it down to your own needs, so the out of the box experience got cleaned up for Solr 5.
+<h2>New and... generified</h2>
+With Solr 5, /browse has been designed to come out of the box with the default configuration, data_driven_configs (aka "schema-less").  The techproducts example has its own separate configuration (<span class="s1">sample_techproducts_configs) </span>and custom set of templates, and they were left alone and as you see above.  In order to make the templates work generically for most any type of data you've indexed, the default templates were stripped down to the basics and baked in.  The first example above, solr_docs, illustrates the out of the box "data driven" experience with /browse.  It doesn't matter what data you put in to a data driven collection, the /browse experience starts with the basic search box and results display.  Let's delve into the /browse side of things with some very simple data in a fresh collection:
+<pre class="">$ bin/solr create -c example
+<span class="s1">$ bin/post -c example -params "f.tags.split=true" -type text/csv -d $'id,title,tags\n1,first document,A\n2,second document,"A,B"\n3,third document,B'
+</span>$ open http://localhost:8983/solr/example/browse</pre>
+This generic interface shows search results from a query specified in the search box, displays stored field values, includes paging controls, has debugging/troubleshooting features (covered below) and includes a number of other capabilities that aren't apparent initially.
+<h3>Faceting</h3>
+<img class="alignright size-medium wp-image-13717" src="http://lucidworks.com/wp-content/uploads/2015/08/browse_example_tags_facet-300x176.png" alt="tags facet" width="300" height="176" />Because the default templates make no assumptions about the type of data or values in fields, there is no faceting on by default, but the templates support it.  Add <code>facet.field=tags</code> to a /browse request such as <a href="http://localhost:8983/solr/example/browse?facet.field=tags" target="_blank">http://localhost:8983/solr/example/browse?facet.field=tags</a> and it'll render as shown here.
+
+&nbsp;
+
+&nbsp;
+
+Clicking the value of a facet filters the results as naturally expected, using Solr's fq parameter.  The built-in, generic /browse templates, as of Solr 5.3, only support <strong>field</strong> faceting.  Other faceting (range, pivot, and query) is not supported by the templates - they simply won't render in the UI. [the techproducts templates do have some hard-coded support for other facets, which can be borrowed from as needed; continue on to see how to customize the view to suit your needs]
+
+You'll notice as you click around after manually adding "facet.field=tags" that the links do not include the manually added parameter.  We'll see below how to go about customizing the interface, including how to add a field facet to the UI.  But first let's delve into how /browse works.
+<h2>What makes /browse work?</h2>
+In Solr technical speak, /browse is a search request handler, just like /select - in fact, on any /browse request you can set <code>wt=xml</code> to see the standard results that drive the view.   The difference is that /browse has some additional parameters defined as defaults to enhance querying, faceting, and response writing.  Queries are configured to use the edismax query parser.  Faceting is turned on though no fields are specified initially, and facet.mincount=1 so as to not show zero count buckets.  Response writing tweaks make the secret sauce to /browse.
+<h3>VelocityResponseWriter</h3>
+Requests to /browse are standard Solr search requests with the addition of three parameters:
+<ul>
+	<li><code>wt=velocity</code>: Use the VelocityResponseWriter for generating the HTTP response from the internal SolrQueryRequest and SolrQueryResponse objects</li>
+	<li><code>v.template=browse</code>: The name of the template to render</li>
+	<li><code>v.layout=layout</code>: The name of the template to use as a "layout", a wrapper around the main v.template specified</li>
+</ul>
+Solr generally returns search results as data, as XML, JSON, CSV, or even other data formats.  At the end of a search request processing the response object is handed off to a QueryResponseWriter to render.  In the data formats, the response object is simply traversed and wrapped with angle, square, and curly brackets.  The VelocityResponseWriter is a bit different, handing off the response data object to a flexible templating system called Velocity.
+
+"Velocity"?  Woah, slow down!  <a href="http://velocity.apache.org/">Apache Velocity</a> has been around for a long time; it's a top-notch, flexible, templating library.  Velocity lives up to its name - it's fast too.  A good starting point to understanding Velocity is an article I wrote many moons ago here: <a href="https://today.java.net/pub/a/today/2003/12/16/velocity.html">"Velocity: Fast Track to Templating"</a>.  Rather than providing a stand-alone Velocity tutorial here, we'll do it by example in the context of customizing the /browse view.  Refer to the <a href="https://cwiki.apache.org/confluence/display/solr/Response+Writers#ResponseWriters-VelocityResponseWriter">VelocityResponseWriter documentation</a> in the Reference Guide for more detailed information.
+<h2>Customizing the view</h2>
+There are several ways to customize the view; it ultimately boils down to the Velocity templates rendering what you want.   Not all modifications require template hacking though.  The built-in /browse handler uses a relatively new feature to Solr called "param sets", which debuted in Solr 5.0.   The handler is defined like this:
+<pre class="">&lt;requestHandler name="/browse" class="solr.SearchHandler" useParams="query,facets,velocity,browse"&gt;</pre>
+The useParams setting specifies which param set(s) to use as default parameters, allowing them to be grouped and controlled through an HTTP API.  An implementation detail, but param sets are defined in a conf/params.json file, and the default set of parameters is spelled out as such:
+<pre class="">{"params":{
+  "query":{
+    "defType":"edismax",
+    "q.alt":"*:*",
+    "rows":"10",
+    "fl":"*,score",
+    "":{"v":0}
+  },
+  "facets":{
+    "facet":"on",
+    "facet.mincount": "1",
+    "":{"v":0}
+  },
+ "velocity":{
+   "wt": "velocity",
+   "v.template":"browse",
+   "v.layout": "layout",
+   "":{"v":0}
+ }
+}}</pre>
+The various sets aim to keep parameters grouped by function.  Note that the "browse" param set is not defined, but it is used as a placeholder set name that can be filled in later.  So far so good with straightforward typical Solr parameters being used initially.
+
+Again, ultimately everything that renders is a result of the template driving it.  In the case of facets, all field facets in the Solr response will be rendered (from facets.vm).   Using the param set API, we can add the "tags" field to the "facets" param set:
+<pre class="">$ curl http://localhost:8983/solr/example/config/params -H 'Content-type:application/json'  -d '{
+"update" : {
+  "facets": {
+    "facet.field":"tags"
+    }
+  }
+}'</pre>
+Another nicety about param sets - their effect is immediate, whereas changes to request handler definitions require the core to be reloaded or Solr to be restarted.  Just hit refresh in your browser on /browse, and the new tags facet will appear without being explicitly specified in the URL.
+
+See the example/films/README.txt for an example adding a facet field and query term highlighting.  The built-in templates are already set up to render field facets and field highlighting when enabled, making it easy to do some basic domain-specific adjustments without having to touch a template directly.
+<h2>Overriding built-in templates</h2>
+VelocityResponseWriter has a somewhat sophisticated mechanism for locating templates to render.  Using a "resource loader" search path chain, it can get templates from a file system directory, the classpath, a velocity/ subdirectory of the conf/ directory (either on the file system or in ZooKeeper), and even optionally from request parameters.  By default, templates are only configured to come from Solr's resource loader which pulls from conf/velocity or from the classpath (including solrconfig.xml configured JAR files or directories).  The built-in templates live within the solr-velocity JAR file.  These templates can be extracted, even as Solr is running, to conf/velocity so that they can be adjusted.  To extract the built-in templates to your collections conf/velocity directory, the following command can be used, assuming the "example" collection that we're working with here.
+<pre class="p1"><span class="s1">$ unzip dist/solr-velocity-5.3.0.jar velocity/*.vm -d server/solr/example/conf/</span></pre>
+This trick works when Solr is running in standalone mode.  In SolrCloud mode, conf/ is in ZooKeeper as would be conf/velocity/ and the underlying template files; if you're not seeing your changes to a template be sure the template is where Solr is looking for it which may require uploading it to ZooKeeper.  With these templates extracted from the JAR file, you can now edit them to suit  your needs.  Template files use the extension .vm, which stands for "Velocity macro".  Let's demonstrate changing the Solr logo in the upper left to a magnifying glass clip art image.   Open server/solr/example/conf/velocity/layout.vm with a text editor, change the <code>&lt;div id="head"&gt;</code> to the following, save the file, and refresh /browse in your browser:
+<pre class="lang:xhtml decode:true">&lt;div id="head"&gt;
+  &lt;a href="#url_for_home"&gt;
+     &lt;img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Twemoji_1f50e.svg/50px-Twemoji_1f50e.svg.png"/&gt;
+  &lt;/a&gt;
+&lt;/div&gt;</pre>
+<img class="alignnone" src="https://upload.wikimedia.org/wikipedia/commons/d/d5/Twemoji_1f50e.svg" alt="magnifying glass" width="48" height="48" />[The image used is attributed to https://commons.wikimedia.org/wiki/File:Twemoji_1f50e.svg]
+
+You've now got the logo customized (#protip: your boss will love seeing the company logo on your quick Solr prototype).  Don't forget the colors too: the CSS styles can be customized in head.vm.
+<h3>Customizing results list</h3>
+The /browse results list is rendered using results_list.vm, which just iterates over all "hits" in the response (the current page of documents) rendering hit.vm for each result.  The rendering of a document in the search results commonly is an area that needs some domain-specific attention.
+
+The templates that were extracted will now be used, overriding the built-in ones.  Any templates that you don't need to customize can be removed, falling back to the default ones.  In this example, the template changed was specific to the "example" core.  Newly created collections, even data-driven based ones, won't have this template change.  [WARNING: changes made will be lost if you delete the example collection - see the -Dvelocity.template.base.dir technique to externalize templates from the configuration.]
+
+*****
+
+&nbsp;
+
+&lt;queryResponseWriter name="velocity" class="solr.VelocityResponseWriter" startup="lazy"&gt; &lt;str name="template.base.dir"&gt;${velocity.template.base.dir:}&lt;/str&gt; &lt;/queryResponseWriter&gt;
+<h2></h2>
+<h2>Debugging/Troubleshooting</h2>
+I like using /browse for debugging and troubleshooting.  In the footer of the default view there is an "enable debug" link adding a "debug=true" to the current search request.  The /browse templates add a "toggle parsed query" link under the search box and a "toggle explain" by each search result hit.
+
+Searching for "faceting", enabling debug, and toggling the parsed query tells us what how the users query was interpreted, including what field(s) are coming into play and any analysis transformations like stemming or stop word removal that took place.
+
+<a href="http://lucidworks.com/wp-content/uploads/2015/07/browse_explain.png"><img class="aligncenter wp-image-13676 size-large" src="http://lucidworks.com/wp-content/uploads/2015/07/browse_parsed_query-1024x87.png" alt="/browse: parsed query" width="640" height="54" /></a>
+
+&nbsp;
+
+Toggling the explain on a document provides detailed, down to the Lucene-level, explanation of how this document matched and how the relevancy score was computed.  As shown below, "faceting" appears in the _text_ field (a data_driven_configs copyField destination for all fields making everything searchable).  "faceting" appears 4 times in this particular document (tf, term frequency), and appears in 24 total documents (df, document frequency).  The fieldNorm factor can be a particular important one, a factor based on the number of terms in the field generally giving shorter fields a relevancy advantage over longer ones.
+
+<a href="http://lucidworks.com/wp-content/uploads/2015/07/browse_explain.png"><img class="aligncenter wp-image-13675 size-large" src="http://lucidworks.com/wp-content/uploads/2015/07/browse_explain-1024x340.png" alt="/browse: explain" width="640" height="213" /></a>
+
+&nbsp;
+<h2></h2>
+<h2>Conclusion</h2>
+VelocityResponseWriter, it's not for everyone or every use case.  Neither is wt=xml for that matter.  If... blah blah blah.... but it sure is fun!  /browse has gotten flack over the years as a "toy" or not "production-ready".  It's both of those, and even then some.
+
+1. Let's Solr-power some data...
+
+&nbsp;
+
+&nbsp;
+
+bin/solr create -c data_bucket
+
+&nbsp;
+
+2. ...that the cat dragged in:
+
+cat data.csv | bin/post -c data_bucket -type text/csv
+
+3. /solr/data_bucket/browse - TADA!
+
+&lt;insert screenshot&gt;
+
+be sure to ESCAPE any text that comes from the index
+
+&nbsp;
+<h2>Cons: disclaimers, caveats, warnings</h2>
+- Let's get real: /*solr*/data_bucket/browse is just another regular request directly to Solr.  Try adding wt=xml (/solr/data_bucket/browse?wt=xml and you'll see that more clearly.  _All_ the VelocityResponseWriter does is take that response data structure and feed it to a templating system, and Solr returns that template'ified output (as HTML, or really anything textual).
+
+- Your boss will think you finished the app, before you've even started building it?  Lol, not hardly, it's not *that* pretty or entirely as functionally comprehensive out of the box
+
+- Again, this is just a request to Solr.  Unless you've taken other precautions, users that can hit Solr and make /browse requests could also add, modify, change, delete or otherwise affect collections, documents, and all kinds of things opening the possibility to data security leaks, denial of service attacks, or wiping out partial or complete collections.   Sounds bad, but nothing new or different when it comes to /browse compared to /select, it just looks prettier, and user-friendly enough to want to expose to non-developers.
+
+---
+<p class="p1"><span class="s1">bin/solr start -Dvelocity.template.base.dir=...</span></p>
+<p class="p1"><span class="s1">`</span></p>
+<p class="p2"><span class="s2">is a nice trick - lets you customize the velocity templates (from a common file system area external to Solr's configs) - could share that among many cores (it would in this case)</span></p>
+<p class="p2">Real world uses of VrW:</p>
+
+<ul>
+	<li class="p2">prototyping, developing proof-of-concepts: I've done this more than once (TMF and SX)</li>
+	<li class="p2">e-mail generation</li>
+	<li class="p2">actual user facing user interface; most securely done using the Lucidworks Fusion proxy to authenticate and authorize access</li>
+</ul>
+<h2 class="p2">Other things to cover</h2>
+<ul>
+	<li>.class trick, to introspect</li>
+	<li>Show an Ajax example (with/without VrW)</li>
+	<li>Add segue/foreshadowing to example/files</li>
+	<li>URLs - these go directly *to* Solr, so there isn't a middle tier processing parameters and fronting Solr.  Generated hyperlinks do what they can generically, but adding in additional request-time params can be tricky to get right in all contexts - should all links include the current search query and applied filters?  No - as it's desirable to have links that remove one or more filters, or clear out the query term, or keep the sort parameter unless the link is to change the sort (but keep all the query and filter context) - not so easy!</li>
+	<li>$response(.response.response...) diagram/map</li>
+</ul>
+Open issues
+<ul>
+	<li>Fix so that /select?q=*:*&amp;wt=velocity works</li>
+</ul>
